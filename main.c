@@ -5,15 +5,15 @@
 #include "ta_32768.h"
 #include "SMC_hal.h"
 
-
+// Define Position of main clock text
 #define H_X_POS 4
 #define H_Y_POS 26
-
+// Define Height and lenght of main clock text
 #define HEIGHT 7
 #define LENGHT 102-H_X_POS
 
 unsigned int a;
-
+// Defines different states of the buttons
 unsigned int s1_pushed=0;
 unsigned int s2_pushed=0;
 unsigned int s1_tick_pressed=0;
@@ -21,18 +21,15 @@ unsigned int s2_tick_pressed=0;
 unsigned int s1_long=0;
 unsigned int s2_long=0;
 
-unsigned int long_press;
-unsigned int change_mode;
+//Global tick used for the led
+unsigned int tick=0;
 
 unsigned int chrono_start = 0;
 
-unsigned int blink_state=0;
-
-unsigned int set_clock=0;
+// Position of the cursor when setting clock
 unsigned int set_pos=0;
 
 char mode=0; // Mode: 0-> Clock, 1->Chrono, 2->set_clock
-char blink=0;
 
 //For centi and mili seconds
 unsigned int ms=0;
@@ -97,6 +94,7 @@ void setup_clk(void) {
 	P1OUT &= ~BIT2;
 }
 
+//Screen intialisation
 void screen_init(void){
     Dogs102x6_init();
     Dogs102x6_backlightInit();
@@ -107,7 +105,7 @@ void screen_init(void){
     Dogs102x6_stringDraw(H_X_POS, H_Y_POS, "00:00:00", 0);
 }
 
-
+// General setup function
 void init(void){
 
     P1DIR &= ~BIT7;          // Set P1.7 as input
@@ -122,18 +120,43 @@ void init(void){
     P2OUT |= BIT2;  // Set P2.2 as pull-Up resistance
     P2IES |= BIT2;  // P2.2 Hi/Lo edge
 
+
+
     // Screen and clock setup
 	screen_init();
 	setup_clk();
 }
 
-void TaskTogglePAD1(void)
-{
-  TGL_PAD1();
-  ms = 0;
-  cs= 0;
+// To check if the clock is still in the right values when setting it
+void check_bounds(void){
+	if(var_hsu==10){
+		//Every Ten secs
+		var_hsd+=1;
+		var_hsu=0;
+	}
+	if(var_hsd==6){
+		//Every Minute
+		var_hmu+=1;
+		var_hsd=0;
+	}
+	if(var_hmu==10){
+		var_hmd+=1;
+		var_hmu=0;
+	}
+	if(var_hmd==6){
+		var_hhu+=1;
+		var_hmd=0;
+	}
+	if(var_hhu==10){
+		var_hhd+=1;
+		var_hhu=0;
+	}
+	if(var_hhd>=3){
+		var_hhd=0;
+	}
 }
 
+// When setting clock,
 void update_clock(void){
 	switch(set_pos){
 		case 0:{
@@ -161,15 +184,16 @@ void update_clock(void){
 			break;
 		}
 	}
+	check_bounds();
 }
-
+// function to call to increment the value of the clock
 void incr_clock(void){
 	if(mode != 2){ //Not when setting clock
-	//Every sec
-	var_hsu+=1;
-	ms=0;
+		//Every sec
+		var_hsu+=1;
+		ms=0;
 	}
-	P1OUT ^= BIT1;
+
 	if(var_hsu==10){
 		//Every Ten secs
 		var_hsd+=1;
@@ -197,6 +221,7 @@ void incr_clock(void){
 	}
 }
 
+// function to call to increment the value of the chrono
 void incr_chrono(void){
 	if(chrono_start){
 		//Every cent
@@ -230,6 +255,7 @@ void incr_chrono(void){
 	}
 }
 
+// To reset chrono
 void reset_chrono(void){
 	var_cmd = 0;
 	var_cmd = 0;
@@ -239,8 +265,21 @@ void reset_chrono(void){
 	var_ccu = 0;
 }
 
+// To make the Led blink following a particuliar pattern
+// Ticking 3 times at 200ms interval, then off for 3s
+void blink_led(void){
+	tick += 1;
+	if(tick<=6){
+		P1OUT ^= BIT1;
+	}
+	else if(tick==20){
+		tick=0;
+	}
+}
+
+// To update the variables used for display
 void update_display_val(void){
-	if(mode == 0){ //Clock case
+	if(mode == 0 || mode == 2){ //Clock case
 		d1 = var_hhd;
 		u1 = var_hhu;
 		d2 = var_hmd;
@@ -258,6 +297,7 @@ void update_display_val(void){
 	}
 }
 
+// Function putting in form the data and sending it to the screen.
 void display_clock(void){
 	//Dogs102x6_charDrawXY(HD_X_POS, H_Y_POS,0)
 	char display_string[9];
@@ -271,12 +311,6 @@ void display_clock(void){
 	display_string[2] = ':';
 	display_string[5] = ':';
 	display_string[8] = '\0';
-	if(blink && blink_state){
-		display_string[set_pos]==' ';
-	}
-	else if(blink){
-		blink_state=1;
-	}
 
 	Dogs102x6_clearRow(H_X_POS);
     Dogs102x6_stringDraw(H_X_POS, H_Y_POS, display_string, 0);
@@ -287,8 +321,11 @@ void check_S1(void){
 	if((P1IN & BIT7) == 0){
 		s1_pushed = 1;
 		s1_tick_pressed ++;
-		if(s1_tick_pressed > 5){
+		if(s1_tick_pressed == 5){
 			s1_long = 1;
+		}
+		else if(s1_tick_pressed > 5){ // To avoid
+			s1_long = 0;
 		}
 	}
 	else{
@@ -305,8 +342,11 @@ void check_S2(void){
 	if((P2IN & BIT2) == 0){
 		s2_pushed = 1;
 		s2_tick_pressed ++;
-		if(s2_tick_pressed > 5){
+		if(s2_tick_pressed == 5){
 			s2_long = 1;
+		}
+		else if(s2_tick_pressed > 5){
+			s2_long = 0;
 		}
 	}
 	else{
@@ -318,6 +358,7 @@ void check_S2(void){
 	}
 }
 
+// Function to check the state of the button and change mode accordingly
 void mode_changer(void){
 	if(mode == 0){ //Mode horloge
 		if(s1_pushed == 0 && s1_tick_pressed <= 5 && s1_tick_pressed > 0){ //Only look when released
@@ -327,6 +368,8 @@ void mode_changer(void){
 		}
 		else if(s1_long){
 			mode = 2;
+			Dogs102x6_clearScreen();
+		    Dogs102x6_stringDrawXY(0, 0, clockset, 0);
 		}
 	}
 	else if(mode == 1){ //Mode chrono
@@ -361,11 +404,13 @@ void mode_changer(void){
 		}
 		if(s1_long){
 			mode=0;
+			Dogs102x6_clearScreen();
+		    Dogs102x6_stringDrawXY(0, 0, horloge, 0);
 		}
 	}
 }
 
-
+// Main function
 void main(void)
 {
 
@@ -386,14 +431,15 @@ void main(void)
    SCH_Add_Task(check_S1, 0, 10);
    SCH_Add_Task(check_S2, 0, 10);
    SCH_Add_Task(mode_changer, 0, 10);
+   SCH_Add_Task(blink_led, 0, 20);
 
 
-
-   // To use clock to drive Led P1.1 through interruptions
-   P1DIR |= BIT1;
    TA0CTL |= TASSEL_2 + MC_1; // On MCLK up to Max Register Val
    TA0CCR0 = 32767; // Blink period -> 10ms
 
+   // To use clock to drive Led P1.1 through interruptions
+   P1DIR |= BIT1;
+   P1OUT &= ~BIT1; //LED Off
 
    // Demarrage de l'ordonnanceur
    SCH_Start();
@@ -404,5 +450,4 @@ void main(void)
    {
 	   SCH_Dispatch_Tasks();
    }
-
 }

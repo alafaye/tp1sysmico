@@ -125,6 +125,7 @@ __interrupt void SCH_Update(void)
    {
    uint8_t Index;
 
+   // Using the timer to increase values in the chrono and the clock
    ms+=10;
    cs+=1;
 
